@@ -1,4 +1,6 @@
-#!/bin/bash
+#!/bin/zsh
+
+set -e
 
 # Define tput commands for formatting
 BOLD=$(tput bold)
@@ -118,59 +120,59 @@ REVIEW_SUMMARIES=$(echo "$REVIEWS" | jq -rc \
     from_entries
   ')
 
-# Create a nicely formatted table with aligned review counts
-echo ""
-echo "${BOLD}=== Approval Summary (Last Month) ===${RESET}"
-echo ""
+if [[ -o interactive ]]; then
+    # Create a nicely formatted table with aligned review counts
+  echo ""
+  echo "${BOLD}=== Approval Summary (Last Month) ===${RESET}"
+  echo ""
 
-# Get the longest reviewer name for alignment
-MAX_LENGTH=$(echo "$REVIEWS" | jq -r 'keys[] | length' | sort -n | tail -1)
-MAX_LENGTH=$(( MAX_LENGTH + 2 ))
+  # Get the longest reviewer name for alignment
+  MAX_LENGTH=$(echo "$REVIEWS" | jq -r 'keys[] | length' | sort -n | tail -1)
+  MAX_LENGTH=$(( MAX_LENGTH + 2 ))
 
-# Create the table header
-printf "${BOLD}%-${MAX_LENGTH}s${RESET} ${BOLD}%s${RESET}\n" "Reviewer" "Reviews"
-printf "%-${MAX_LENGTH}s %s\n" "$(printf '%*s' $MAX_LENGTH '' | tr ' ' '-')" "-------"
+  # Create the table header
+  printf "${BOLD}%-${MAX_LENGTH}s${RESET} ${BOLD}%s${RESET}\n" "Reviewer" "Reviews"
+  printf "%-${MAX_LENGTH}s %s\n" "$(printf '%*s' $MAX_LENGTH '' | tr ' ' '-')" "-------"
 
-# Print the data rows with proper alignment
-SUMMARY=$(echo "$REVIEWS" \
-  | jq -r \
-    --arg maxlen "$MAX_LENGTH" \
-      '
-      to_entries | 
+  # Print the data rows with proper alignment
+  SUMMARY=$(echo "$REVIEWS" \
+    | jq -r \
+      --arg maxlen "$MAX_LENGTH" \
+        '
+        to_entries | 
+        map({
+          reviewer: .key, 
+          total: [.value | to_entries[].value | length] | add
+        }) | 
+        sort_by(.total) | 
+        reverse | 
+        .[] | 
+        "@\(.reviewer) \(.total)"
+      ' \
+      | xargs -L1 printf "%-${MAX_LENGTH}s ${TURQ}%7s${RESET}\n")
+else
+  echo "$REVIEWS" \
+    | jq -r '
+      [to_entries[]] |
+      flatten | 
       map({
         reviewer: .key, 
         total: [.value | to_entries[].value | length] | add
-      }) | 
+      }) |
       sort_by(.total) | 
-      reverse | 
-      .[] | 
-      "@\(.reviewer) \(.total)"
-    ' \
-    | xargs -L1 printf "%-${MAX_LENGTH}s ${TURQ}%7s${RESET}\n")
-
-echo "$SUMMARY"
-
-echo "$REVIEWS" \
-  | jq -r '
-    [to_entries[]] |
-    flatten | 
-    map({
-      reviewer: .key, 
-      total: [.value | to_entries[].value | length] | add
-    }) |
-    sort_by(.total) | 
-    reverse |
-    to_entries |
-    map({
-      reviewer: .value.reviewer,
-      total: .value.total
-    }) |
-    map("\(.reviewer) (\(.total) approvals)") |
-    join("\n")
-  ' | fzf \
-    --border \
-    --layout reverse \
-    --preview-window=right:60% \
-    --preview="jq -n -r --arg r {} --argjson s '$REVIEW_SUMMARIES' '\$s[(\$r | capture(\"(?<reviewer>[^ ]+)\").reviewer)]'" \
-    --prompt="Select > " \
-    --header="Top Approvers (Last 30d)"
+      reverse |
+      to_entries |
+      map({
+        reviewer: .value.reviewer,
+        total: .value.total
+      }) |
+      map("\(.reviewer) (\(.total) approvals)") |
+      join("\n")
+    ' | fzf \
+      --border \
+      --layout reverse \
+      --preview-window=right:60% \
+      --preview="jq -n -r --arg r {} --argjson s '$REVIEW_SUMMARIES' '\$s[(\$r | capture(\"(?<reviewer>[^ ]+)\").reviewer)]'" \
+      --prompt="Select > " \
+      --header="Top Approvers (Last 30d)"
+fi
